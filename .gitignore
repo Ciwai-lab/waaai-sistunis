@@ -1,0 +1,10 @@
+# Node
+/sistunis-backend/node_modules
+/sistunis-frontend/node_modules
+
+# Build Files Frontend
+/sistunis-frontend/dist
+/sistunis-frontend/build
+
+# Environment Files
+.env
