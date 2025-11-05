@@ -961,6 +961,42 @@ app.post('/api/activities', auth, isFinanceAuditor, async (req, res) => {
 });
 // =======================================================
 
+// === 🟢 ENDPOINT 5: FIND USER BY UID (UNTUK SCANNER) ===
+// Method: GET /api/users/find-by-uid/:uid
+app.get('/api/users/find-by-uid/:uid', auth, async (req, res) => {
+    let client;
+    try {
+        const { uid } = req.params;
+        if (!uid) {
+            return res.status(400).json({ status: 'error', message: 'UID Santri wajib diisi, bro!' });
+        }
+
+        client = await pool.connect();
+
+        // Query untuk mencari Santri (role_id: 2) berdasarkan QR Code UID
+        const query = 'SELECT * FROM users WHERE qr_code_uid = $1 AND role_id = 2';
+        const result = await client.query(query, [uid]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ status: 'error', message: 'Santri dengan UID tersebut tidak ditemukan.' });
+        }
+
+        // Hapus password sebelum dikirim ke frontend
+        const user = result.rows[0];
+        delete user.password;
+
+        res.status(200).json({ status: 'success', message: 'Santri ditemukan!', data: user });
+
+    } catch (err) {
+        console.error('Error FIND USER BY UID:', err.stack);
+        res.status(500).json({ status: 'error', message: 'Gagal saat mencari Santri.', error: err.message });
+    } finally {
+        if (client) client.release();
+    }
+});
+
+// =======================================================
+
 // Mulai server
 app.listen(port, () => {
     console.log(`\n[WaaAI] Server SISTUNIS running di http://localhost:${port}\n`);
