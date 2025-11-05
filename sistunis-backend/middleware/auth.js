@@ -5,14 +5,15 @@ const jwt = require('jsonwebtoken');
 module.exports = function (req, res, next) {
     // 1. Ambil token dari header
     // Token biasanya dikirim sebagai: Authorization: Bearer <token>
-    const authHeader = req.header('Authorization');
+    const token = req.header('x-auth-token');
 
-    if (!authHeader) {
+    if (!token) {
+        // Jika token tidak ada di header yang dicari
         return res.status(401).json({ msg: 'Akses ditolak. Token tidak ditemukan.' });
     }
 
     // Pisahkan 'Bearer' dari token
-    const token = authHeader.replace('Bearer ', '');
+    // const token = authHeader.replace('Bearer ', '');
 
     // 2. Verifikasi Token
     try {
