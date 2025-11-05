@@ -963,7 +963,7 @@ app.post('/api/activities', auth, isFinanceAuditor, async (req, res) => {
 
 // === 🟢 ENDPOINT 5: FIND USER BY UID (UNTUK SCANNER) ===
 // Method: GET /api/users/find-by-uid/:uid
-app.get('/api/users/find-by-uid/:uid', auth, async (req, res) => {
+app.get('/api/users/find-by-uid/:uid', async (req, res) => {
     let client;
     try {
         const { uid } = req.params;
