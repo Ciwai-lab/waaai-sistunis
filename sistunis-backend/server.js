@@ -10,6 +10,18 @@ const auth = require('./middleware/auth');
 
 dotenv.config();
 
+// =======================================================
+// === 🟢 FUNGSI HELPER: GENERATE RANDOM UID ===
+// =======================================================
+const generateQrCodeUid = () => {
+    // Membuat string random (contoh: 36 karakter alfanumerik)
+    // Menggunakan base36 (0-9 dan a-z) + timestamp agar unik
+    return Math.random().toString(36).substring(2, 15) +
+        Math.random().toString(36).substring(2, 15) +
+        Date.now().toString(36);
+};
+// =======================================================
+
 const app = express();
 const port = 3000;
 
@@ -385,6 +397,30 @@ app.post('/api/scanner/withdraw', auth, isAdminTu, async (req, res) => {
             return res.status(404).json({ status: 'error', message: 'Santri dengan QR Code tersebut tidak ditemukan, bro.' });
         }
 
+        // =========================================================
+        // === 🟢 TAMBAHAN: CEK TRANSAKSI GANDA HARIAN HARI INI ===
+        // =========================================================
+        const today = new Date().toISOString().split('T')[0]; // Ambil tanggal hari ini (YYYY-MM-DD)
+
+        const checkDuplicate = await client.query(
+            // Cek apakah sudah ada transaksi withdrawal di hari ini
+            `SELECT id 
+             FROM transactions 
+             WHERE student_id = $1
+               AND date_trunc('day', transaction_time) = $2::date 
+               AND is_daily_allowance = TRUE`,
+            [student.id, today] // Pakai student.id yang sudah terverifikasi
+        );
+
+        if (checkDuplicate.rows.length > 0) {
+            await client.query('ROLLBACK'); // BATALKAN TRANSAKSI
+            return res.status(409).json({
+                status: 'warning',
+                message: `Weew, ${student.name} sudah melakukan pengambilan uang saku harian hari ini, bro!`
+            });
+        }
+        // =========================================================
+
         const balanceBefore = parseFloat(student.saldo_uang_saku);
 
         // 2. Cek Saldo
@@ -486,6 +522,62 @@ app.get('/api/transactions/history', auth, isFinanceAuditor, async (req, res) =>
     } catch (err) {
         console.error('Error mengambil history:', err.stack);
         res.status(500).json({ status: 'error', message: 'Gagal saat mengambil data history.', error: err.message });
+    } finally {
+        if (client) client.release();
+    }
+});
+// =======================================================
+
+// =======================================================
+// === 🟢 ENDPOINT BARU: DASHBOARD STATS (EFEKTIF) ===
+// =======================================================
+// Hanya bisa diakses oleh Mudiir (ID 2) atau Admin TU (ID 3)
+app.get('/api/dashboard/stats', auth, isFinanceAuditor, async (req, res) => {
+    let client;
+    try {
+        const today = new Date().toISOString().split('T')[0]; // Ambil tanggal hari ini (YYYY-MM-DD)
+        client = await pool.connect();
+
+        // --- 1. Ambil Total Santri ---
+        // Kita paksa jadi INT/Number (::int)
+        const totalStudentsRes = await client.query('SELECT COUNT(id)::int AS total FROM students');
+
+        // --- 2. Ambil Total Saldo Uang Saku ---
+        // COALESCE(SUM(...), 0) untuk memastikan hasilnya 0 jika tabel kosong
+        const totalBalanceRes = await client.query('SELECT COALESCE(SUM(saldo_uang_saku), 0)::numeric AS total FROM students');
+
+        // --- 3. Ambil Statistik Absensi Hari Ini (Aktivitas ID 1 = Pondok Harian) ---
+        // COUNT(DISTINCT student_id) FILTER(...) adalah cara efisien di Postgres untuk COUNT dengan kondisi
+        const attendanceStatsQuery = `
+            SELECT 
+                COUNT(DISTINCT student_id) FILTER (WHERE check_in_time IS NOT NULL) AS checked_in,
+                COUNT(DISTINCT student_id) FILTER (WHERE check_out_time IS NOT NULL) AS checked_out
+            FROM attendance
+            WHERE date = $1::date AND activity_id = 1; 
+        `;
+        const attendanceStatsRes = await client.query(attendanceStatsQuery, [today]);
+
+        // Gabungkan hasil dari 3 query ke satu objek JSON
+        const stats = {
+            total_students: totalStudentsRes.rows[0].total,
+            total_balance: parseFloat(totalBalanceRes.rows[0].total), // Pastikan ini dikirim sebagai angka
+            attendance_today: {
+                checked_in: parseInt(attendanceStatsRes.rows[0].checked_in || 0),
+                checked_out: parseInt(attendanceStatsRes.rows[0].checked_out || 0),
+                activity_id: 1, // Klarifikasi aktivitas yang dihitung
+                date: today
+            }
+        };
+
+        res.status(200).json({
+            status: 'success',
+            message: 'Data statistik dashboard berhasil diambil dalam 1 request. Weew!',
+            data: stats
+        });
+
+    } catch (err) {
+        console.error('Error DASHBOARD STATS:', err.stack);
+        res.status(500).json({ status: 'error', message: 'Gagal mengambil data dashboard.', error: err.message });
     } finally {
         if (client) client.release();
     }
@@ -643,6 +735,44 @@ app.get('/api/students/mine', auth, isWaliSantri, async (req, res) => {
 });
 // =======================================================
 
+// ===========================================================
+// === 🟢 ENDPOINT BARU: REGENERATE QR CODE (ADMIN TU) ===
+// ===========================================================
+app.post('/api/students/regenerate-qr/:studentId', auth, isAdminTu, async (req, res) => {
+    let client;
+    try {
+        const { studentId } = req.params;
+
+        // 1. Generate UID Baru
+        const newQrUid = generateQrCodeUid();
+
+        client = await pool.connect();
+
+        // 2. Update QR Code UID di tabel students
+        const result = await client.query(
+            'UPDATE students SET qr_code_uid = $1 WHERE id = $2 RETURNING id, name, qr_code_uid',
+            [newQrUid, studentId]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ status: 'error', message: 'Santri tidak ditemukan, bro!' });
+        }
+
+        res.status(200).json({
+            status: 'success',
+            message: `QR Code Santri ${result.rows[0].name} berhasil diperbarui! Kode QR lama batal otomatis.`,
+            data: result.rows[0] // Mengembalikan data Santri & QR UID baru
+        });
+
+    } catch (err) {
+        console.error('Error REGENERATE QR:', err.stack);
+        res.status(500).json({ status: 'error', message: 'Gagal saat regenerasi QR Code.', error: err.message });
+    } finally {
+        if (client) client.release();
+    }
+});
+// ===========================================================
+
 // =======================================================
 // === 🟢 ENDPOINT: HISTORY TRANSAKSI KHUSUS WALI SANTRI ===
 // =======================================================
@@ -716,6 +846,7 @@ app.post('/api/scanner/attendance', auth, isAdminTu, async (req, res) => {
         // Menerima activity_id dari frontend. Jika tidak ada, default-nya ID 1 (PONDOK)
         const { qr_code_uid, activity_id = 1 } = req.body;
         const executed_by_user_id = req.user.id;
+        const client_ip_address = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
         const today = new Date().toISOString().split('T')[0];
 
         client = await pool.connect();
@@ -750,8 +881,7 @@ app.post('/api/scanner/attendance', auth, isAdminTu, async (req, res) => {
             // =================================================
             if (checkRes.rows.length === 0) {
                 // INSERT CHECK-IN
-                await client.query('INSERT INTO attendance (student_id, executed_by_user_id, check_in_time, date, activity_id) VALUES ($1, $2, NOW(), $3, $4)', [student_id, executed_by_user_id, today, activity_id]);
-                await client.query('COMMIT');
+                await client.query('INSERT INTO attendance (student_id, executed_by_user_id, check_in_time, date, activity_id, executed_from_ip) VALUES ($1, $2, NOW(), $3, $4, $5)', [student_id, executed_by_user_id, today, activity_id, client_ip_address]); await client.query('COMMIT');
                 return res.status(201).json({ status: 'success', message: `Absen Masuk ${activity_name} SUKSES! Halo ${student_name}.`, data: { status: 'check_in' } });
             } else if (!checkRes.rows[0].check_out_time) {
                 // UPDATE CHECK-OUT
@@ -769,8 +899,7 @@ app.post('/api/scanner/attendance', auth, isAdminTu, async (req, res) => {
             // =================================================
             if (checkRes.rows.length === 0) {
                 // INSERT CHECK-IN (HANYA SEKALI)
-                await client.query('INSERT INTO attendance (student_id, executed_by_user_id, check_in_time, date, activity_id) VALUES ($1, $2, NOW(), $3, $4)', [student_id, executed_by_user_id, today, activity_id]);
-                await client.query('COMMIT');
+                await client.query('INSERT INTO attendance (student_id, executed_by_user_id, check_in_time, date, activity_id, executed_from_ip) VALUES ($1, $2, NOW(), $3, $4, $5)', [student_id, executed_by_user_id, today, activity_id, client_ip_address]); await client.query('COMMIT');
                 return res.status(201).json({ status: 'success', message: `Absen Kegiatan ${activity_name} SUKSES! ${student_name} tercatat hadir.`, data: { status: 'check_in_activity' } });
             } else {
                 // SUDAH ABSEN KEGIATAN
