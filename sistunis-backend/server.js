@@ -963,29 +963,35 @@ app.post('/api/activities', auth, isFinanceAuditor, async (req, res) => {
 
 // === 🟢 ENDPOINT 5: FIND USER BY UID (UNTUK SCANNER) ===
 // Method: GET /api/users/find-by-uid/:uid
-app.get('/api/users/find-by-uid/:uid', async (req, res) => {
+app.get('/api/users/find-by-uid/:uid', auth, async (req, res) => {
     let client;
     try {
         const { uid } = req.params;
         if (!uid) {
+            // Cek input wajib ada
             return res.status(400).json({ status: 'error', message: 'UID Santri wajib diisi, bro!' });
         }
 
         client = await pool.connect();
 
-        // Query untuk mencari Santri (role_id: 2) berdasarkan QR Code UID
-        const query = 'SELECT * FROM users WHERE qr_code_uid = $1 AND role_id = 2';
+        // QUERY FINAL: MENCARI DATA DI TABEL STUDENTS
+        // Menggunakan kolom 'qr_code_uid' yang sudah dikonfirmasi di database
+        const query = `
+            SELECT id, name, nis, saldo_uang_saku, class_id, wali_santri_id 
+            FROM students 
+            WHERE qr_code_uid = $1
+            LIMIT 1;
+        `;
         const result = await client.query(query, [uid]);
 
         if (result.rows.length === 0) {
+            // Santri tidak ditemukan di database
             return res.status(404).json({ status: 'error', message: 'Santri dengan UID tersebut tidak ditemukan.' });
         }
 
-        // Hapus password sebelum dikirim ke frontend
-        const user = result.rows[0];
-        delete user.password;
+        const studentData = result.rows[0];
 
-        res.status(200).json({ status: 'success', message: 'Santri ditemukan!', data: user });
+        res.status(200).json({ status: 'success', message: 'Santri ditemukan!', data: studentData });
 
     } catch (err) {
         console.error('Error FIND USER BY UID:', err.stack);
