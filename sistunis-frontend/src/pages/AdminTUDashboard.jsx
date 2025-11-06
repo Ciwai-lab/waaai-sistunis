@@ -81,7 +81,7 @@ const AdminTUDashboard = ({ user }) => {
             const response = await api.post('/scanner/withdraw', // Panggil endpoint withdraw
                 {
                     qr_code_uid: studentData.qr_code_uid, // Gunakan UID dari data santri
-                    amount: amount
+                    amount: nominal
                 },
                 {
                     headers: {
