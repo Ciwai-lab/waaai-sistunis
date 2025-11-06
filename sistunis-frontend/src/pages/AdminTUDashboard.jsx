@@ -26,12 +26,20 @@ const AdminTUDashboard = ({ user }) => {
         setStudentData(null);
         setLoading(true);
 
+        const token = localStorage.getItem('token');
+        if (!token) {
+            setError('Error: Token login tidak ditemukan.');
+            setLoading(false);
+            return;
+        }
+
         try {
             const response = await api.post('/scanner/scan',
                 { qr_code_uid: qrCodeUid },
                 {
                     headers: {
-                        'x-auth-token': token // 🚨 HARUS MENGGUNAKAN HEADER INI
+                        // 🟢 STEP 2: GANTI HEADER LAMA (x-auth-token)
+                        'Authorization': `Bearer ${token}`
                     }
                 }
             );
@@ -75,7 +83,12 @@ const AdminTUDashboard = ({ user }) => {
                     qr_code_uid: studentData.qr_code_uid, // Gunakan UID dari data santri
                     amount: amount
                 },
-                { headers: { 'x-auth-token': token } }
+                {
+                    headers: {
+                        // 🟢 PERBAIKAN HEADER DI WITHDRAW JUGA!
+                        'Authorization': `Bearer ${token}`
+                    }
+                }
             );
 
             if (response.data.status === 'success') {
