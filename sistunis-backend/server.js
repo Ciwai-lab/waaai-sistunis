@@ -978,7 +978,7 @@ app.get('/api/users/find-by-uid/:uid', auth, async (req, res) => {
         // Menggunakan kolom 'qr_code_uid' yang sudah dikonfirmasi di database
         const query = `
             SELECT id, name, nis, saldo_uang_saku, class_id, wali_santri_id, qr_code_uid, created_at
-            FROM students 
+            FROM students
             WHERE qr_code_uid = $1
             LIMIT 1;
         `;
