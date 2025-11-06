@@ -45,7 +45,11 @@ const AdminTUDashboard = ({ user }) => {
             );
 
             if (response.data.status === 'success') {
-                setStudentData(response.data.data);
+                // 💡 FIX: Gabungkan data dari backend DENGAN qrCodeUid dari state lokal
+                setStudentData({
+                    ...response.data.data,
+                    qr_code_uid: qrCodeUid // <-- WAJIB TAMBAHKAN INI!
+                });
                 alert(`Santri ${response.data.data.name} ditemukan!`);
             }
         } catch (err) {
