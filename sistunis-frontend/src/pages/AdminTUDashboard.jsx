@@ -96,12 +96,12 @@ const AdminTUDashboard = ({ user }) => {
             );
 
             if (response.data.status === 'success') {
-                alert(`✅ Penarikan Rp${amount.toLocaleString('id-ID')} Berhasil! Saldo Baru: Rp${parseFloat(response.data.new_balance).toLocaleString('id-ID')}`);
-
+                const newBalance = response.data.data.balance_after;
+                alert(`✅ Penarikan Rp${amount.toLocaleString('id-ID')} Berhasil! Saldo Baru: Rp${parseFloat(newBalance).toLocaleString('id-ID')}`);
                 // Reset form dan update data santri di UI
                 setStudentData(prev => ({
                     ...prev,
-                    current_balance: response.data.new_balance,
+                    current_balance: newBalance,
                     qr_code_uid: null // Hapus UID agar harus scan lagi
                 }));
                 setWithdrawAmount('');
